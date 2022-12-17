@@ -8,13 +8,16 @@ import (
 )
 
 func main() {
-	c, err := types.ParserConfig(os.Getenv("SYNC_BOT_CONFIG"))
+
+	c, err := types.ParserConfig(os.Getenv(" SYNC_BOT_CONFIG"))
 	if err != nil {
 		log.Panic(err)
 	}
 
 	if c.Run.Debug {
 		log.SetLevel(log.DebugLevel)
+	} else {
+		log.SetLevel(log.InfoLevel)
 	}
 
 	tg, err := services.NewTG(c)
@@ -22,4 +25,6 @@ func main() {
 		log.Panic(err)
 	}
 	tg.Run()
+
+	<-make(chan interface{})
 }
