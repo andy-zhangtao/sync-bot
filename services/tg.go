@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	log "github.com/sirupsen/logrus"
 	"strings"
@@ -13,6 +14,7 @@ type TG struct {
 	bot      *tgbot.BotAPI
 	interval int
 	task     map[string]commands.Command
+	conf     types.Config
 }
 
 func NewTG(c types.Config) (*TG, error) {
@@ -28,7 +30,8 @@ func NewTG(c types.Config) (*TG, error) {
 	log.Debugf("%s Authorized Success", bot.Self.UserName)
 
 	share.NewDockerTask()
-	return &TG{bot: bot, interval: c.Run.Interval, task: make(map[string]commands.Command)}, nil
+	share.NewGithubHelper(c)
+	return &TG{bot: bot, interval: c.Run.Interval, task: make(map[string]commands.Command), conf: c}, nil
 }
 
 func (t TG) Run() {
@@ -54,18 +57,28 @@ func (t TG) queryMessage() error {
 				continue
 			}
 
+			ctx := t.wrapContext(t.conf)
+			cmd.SetContext(ctx)
 			if update.Message.ReplyToMessage != nil {
-				cmd.SetReply(update.Message.ReplyToMessage.Text)
+				ctx = context.WithValue(ctx, "reply", update.Message.ReplyToMessage.Text)
+				cmd.SetContext(ctx)
 			}
 
 			command := t.convertCommand(cmd)
+			command.SetContext(context.WithValue(cmd.Context(), "source", update.Message.Chat.ID))
 			command.SetSource(update.Message.Chat.ID)
 			answer, _ := command.Answer()
 			if answer != nil {
 				t.sendMessage(update.Message.Chat.ID, update.Message.MessageID, *answer)
 			}
 
-			command.Run()
+			result, err := command.Run()
+			if err != nil {
+				t.sendMessage(update.Message.Chat.ID, update.Message.MessageID, err.Error())
+				continue
+			}
+
+			t.sendMessage(update.Message.Chat.ID, update.Message.MessageID, result)
 			//msg := tgbot.NewMessage(update.Message.Chat.ID, fmt.Sprintf("reply from bot, [%s]", update.Message.Text))
 			//msg.ReplyToMessageID = update.Message.MessageID
 			//
@@ -88,7 +101,7 @@ func (t TG) parserCommand(msg string) (cmd commands.Command, err error) {
 		}
 	}
 
-	return commands.CommonCmd{
+	return &commands.CommonCmd{
 		Cmd:   cmdDetail[0],
 		Value: strings.TrimSpace(strings.Trim(msg, cmdDetail[0])),
 	}, nil
@@ -98,14 +111,21 @@ func (t TG) parserCommand(msg string) (cmd commands.Command, err error) {
 func (t TG) convertCommand(cmd commands.Command) commands.Command {
 	switch cmd.Kind() {
 	case types.DockerName:
-		return commands.DockerName{Name: cmd.Content()}
+		_c := &commands.DockerName{Name: cmd.Content()}
+		_c.SetContext(cmd.Context())
+		return _c
 	case types.DockerBuild:
-		return &commands.DockerBuild{Build: cmd.Content()}
+		_c := &commands.DockerBuild{Build: cmd.Content()}
+		_c.SetContext(cmd.Context())
+		return _c
 	default:
 		return cmd
 	}
 }
 
-func (t TG) wrapCommand(f func(cmd commands.Command)) {
-
+func (t TG) wrapContext(c types.Config) context.Context {
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, "auth", c.GHelper.Auth)
+	ctx = context.WithValue(ctx, "email", c.GHelper.Email)
+	return ctx
 }

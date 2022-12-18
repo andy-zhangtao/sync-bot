@@ -9,7 +9,7 @@ import (
 
 func main() {
 
-	c, err := types.ParserConfig(os.Getenv(" SYNC_BOT_CONFIG"))
+	c, err := types.ParserConfig(os.Getenv("SYNC_BOT_CONFIG"))
 	if err != nil {
 		log.Panic(err)
 	}
